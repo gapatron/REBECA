@@ -62,6 +62,10 @@ def sample_user_images(
     negative_prompt = negative_prompt * images_per_user
     print(users)
     data = dict.fromkeys(users)
+    
+    # Ensure model is in eval mode
+    diffusion_prior_model.eval()
+    
     for user_idx in tqdm(users):
         user_dict = dict.fromkeys(["prior_embeddings", "images", "posterior_embeddings"])
         like = 1
@@ -70,30 +74,36 @@ def sample_user_images(
         user_ids_uncond_tensor = torch.full_like(user_tensor, fill_value = 94).to(device)
         score_uncond_tensor = torch.full_like(score_tensor, fill_value = 2).to(device)
 
-        sampled_img_embs = sample_from_diffusion(
-                model=diffusion_prior_model,
-                user_ids_cond=user_tensor,
-                scores_cond=score_tensor,
-                user_ids_uncond=user_ids_uncond_tensor,
-                scores_uncond=score_uncond_tensor,
-                img_embedding_size=img_embedding_size,
-                scheduler=noise_scheduler,
-                guidance_scale=guidance_scale,
-                prediction_type="epsilon",
-                device="cuda",
-            )
-        sampled_img_embs = sampled_img_embs.to(diffusion_pipe.device)  # Ensure same device
-        sampled_img_embs = sampled_img_embs.half() if diffusion_pipe.unet.dtype == torch.float16 else sampled_img_embs.float()
-        user_dict["prior_embeddings"] = sampled_img_embs
+        # Generate embeddings with memory cleanup
+        with torch.no_grad():
+            sampled_img_embs = sample_from_diffusion(
+                    model=diffusion_prior_model,
+                    user_ids_cond=user_tensor,
+                    scores_cond=score_tensor,
+                    user_ids_uncond=user_ids_uncond_tensor,
+                    scores_uncond=score_uncond_tensor,
+                    img_embedding_size=img_embedding_size,
+                    scheduler=noise_scheduler,
+                    guidance_scale=guidance_scale,
+                    prediction_type="epsilon",
+                    device="cuda",
+                )
+        
+        # Convert to appropriate dtype and device
         sampled_img_embs = sampled_img_embs.to(diffusion_pipe.device)
         sampled_img_embs = sampled_img_embs.half() if diffusion_pipe.unet.dtype == torch.float16 else sampled_img_embs.float()
+        user_dict["prior_embeddings"] = sampled_img_embs
+        
+        # Generate images with memory optimization
         with torch.no_grad():
             gen_images = diffusion_pipe(
                 prompt=prompt,
                 ip_adapter_image_embeds=[sampled_img_embs.unsqueeze(1)],
                 negative_prompt=negative_prompt,
-                num_inference_steps=100,
+                num_inference_steps=50,  # Reduced steps to save memory
                 ).images
+            
+            # Clear cache after each user
             torch.cuda.empty_cache()
 
             #posterior_embeddings = []
@@ -102,7 +112,12 @@ def sample_user_images(
             #        posterior_embeddings.append(image_emb.cpu())
             
             #user_dict["posterior_embeddings"] = torch.stack(posterior_embeddings)
-        data[user_idx] = user_dict
+        
         user_dict["images"] = gen_images
-    data[user_idx] = user_dict
+        data[user_idx] = user_dict
+        
+        # Clear tensors for this user
+        del score_tensor, user_tensor, user_ids_uncond_tensor, score_uncond_tensor, sampled_img_embs, gen_images
+        torch.cuda.empty_cache()
+    
     return data

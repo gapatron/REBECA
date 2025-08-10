@@ -5,6 +5,9 @@ import torch
 from torch import nn
 from tqdm.auto import tqdm
 from sklearn.model_selection import train_test_split
+from argparse import ArgumentParser
+import pandas as pd
+
 
 sigmoid = nn.Sigmoid()
 
@@ -136,7 +139,7 @@ class IRT():
             gammas = [1,.9999,.999],
             val_size=.1,
             random_state=42,
-            train_device='cpu',
+            device='cpu',
             verbose=True):
 
             assert val_size>0 and val_size<1
@@ -158,7 +161,7 @@ class IRT():
                                                gamma=gamma,
                                                interaction=self.interaction,
                                                val_size=val_size,
-                                               device=train_device,
+                                               device=device,
                                                random_state=random_state,
                                                verbose=False)
 
@@ -226,3 +229,25 @@ class IRT():
             self.validation = params['validation']
             self.interaction = params['interaction']
             
+
+
+if __name__ == "__main__":
+    irt = IRT(interaction=True)
+    parser = ArgumentParser()
+    parser.add_argument("--interaction", type=bool, default=True)
+    parser.add_argument("--usr_threshold", type=int, default=0)
+    parser.add_argument("--device", type=str, default="cuda")
+    args = parser.parse_args()  
+    data_eval = pd.read_csv(f"./data/flickr/processed/test/test_usrthrs_{args.usr_threshold}.csv")
+    E_test = torch.load(f"./data/flickr/processed/test/test_ie_usrthrs_{args.usr_threshold}.pt", weights_only=True)
+    data_train = pd.read_csv(f"./data/flickr/processed/train/train_usrthrs_{args.usr_threshold}.csv")
+    E_train = torch.load(f"./data/flickr/processed/train/train_ie_usrthrs_{args.usr_threshold}.pt", weights_only=True)
+    Y_test = (torch.tensor(data_eval.score)>=4).float()
+    Y_train = (torch.tensor(data_train.score)>=4).float()
+    U_test = torch.tensor(data_eval.worker_id)
+    U_train = torch.tensor(data_train.worker_id)
+    irt.interaction = args.interaction
+    irt.fit(U_train, E_train, Y_train, device=args.device)
+    irt.save(f"../data/flickr/evaluation/irt/models/weights/irt/irt_interaction_true_usrthrs_{args.usr_threshold}.pkl")
+    irt.load(f"../data/flickr/evaluation/irt/models/weights/irt/irt_interaction_true_usrthrs_{args.usr_threshold}.pkl")
+    print(irt.score(U_test, E_test))
