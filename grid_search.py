@@ -78,7 +78,7 @@ def run_grid_search(train_df, train_dataset, val_dataset, param_grid, savedir, u
         noise_scheduler = get_noise_scheduler(noise_schedule, timesteps, clip_sample, rescale_betas)
         # Define save path for the weights
         
-        savepath = f"{savedir}/sd15_bs{batch_size}_ns{noise_schedule}_spu{samples_per_user}_timesteps{timesteps}_clipsample{clip_sample}_rescalebetas{rescale_betas}.pth"
+        savepath = f"{savedir}/sd15_bs{batch_size}_ns{noise_schedule}_spu{samples_per_user}_ts{timesteps}_cs{clip_sample}_rb{rescale_betas}_obj{objective}.pth"
 
         # Adjust dataloader batch size
         train_user_sampler = RecommenderUserSampler(train_df.reset_index(), num_users=unique_users, samples_per_user=samples_per_user)
