@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 
@@ -28,6 +29,229 @@ class SinusoidalEmbedding(nn.Module):
     def __len__(self):
         return self.size
     
+
+class CrossAttentionDiffusionPrior(nn.Module):
+    """
+    Enhanced diffusion prior with cross-attention for user preferences
+    """
+    def __init__(
+        self,
+        img_embed_dim=1024,
+        num_users=94,
+        num_tokens=8,
+        n_heads=8,
+        num_layers=6,
+        dim_feedforward=2048,
+    ):
+        super().__init__()
+        self.num_tokens = num_tokens
+        self.token_dim = img_embed_dim // num_tokens
+        
+        # User and score embeddings
+        self.user_embedding = nn.Embedding(num_users + 1, self.token_dim)  # +1 for CFG
+        self.score_embedding = nn.Embedding(3, self.token_dim)  # 0, 1, 2 (CFG)
+        self.time_embedding = SinusoidalEmbedding(self.token_dim)
+        
+        # Cross-attention layers for user-image interaction
+        self.user_image_cross_attention = nn.MultiheadAttention(
+            embed_dim=self.token_dim, num_heads=n_heads, batch_first=True, dropout=0.1
+        )
+        
+        # Self-attention for image tokens
+        self.image_self_attention = nn.TransformerEncoderLayer(
+            d_model=self.token_dim, nhead=n_heads, dim_feedforward=dim_feedforward,
+            batch_first=True, dropout=0.1
+        )
+        
+        # Multi-layer transformer for image processing
+        self.image_transformer = nn.TransformerEncoder(
+            self.image_self_attention, num_layers=num_layers
+        )
+        
+        # Final prediction head
+        self.output_fc = nn.Linear(self.token_dim, self.token_dim)
+        
+        # Layer normalization
+        self.norm1 = nn.LayerNorm(self.token_dim)
+        self.norm2 = nn.LayerNorm(self.token_dim)
+    
+    def forward(self, x, t, user_id, score):
+        """
+        Forward pass
+        Args:
+            x: (batch_size, img_embed_dim) - noisy image embeddings
+            t: (batch_size) - timesteps
+            user_id: (batch_size) - user IDs
+            score: (batch_size) - binary scores (0, 1, 2 for CFG)
+        Returns:
+            predicted_noise: (batch_size, img_embed_dim)
+        """
+        bsz = x.shape[0]
+        
+        # Tokenize image embeddings
+        img_tokens = x.view(bsz, self.num_tokens, self.token_dim)  # (bsz, num_tokens, token_dim)
+        
+        # Create user and score tokens
+        user_token = self.user_embedding(user_id).unsqueeze(1)  # (bsz, 1, token_dim)
+        score_token = self.score_embedding(score).unsqueeze(1)  # (bsz, 1, token_dim)
+        
+        # Handle timestep expansion if needed
+        if t.dim() == 0:
+            t = t.unsqueeze(0)  # Make it 1D if it's a scalar
+        if t.shape[0] == 1 and bsz > 1:
+            t = t.expand(bsz)  # Expand to batch size if needed
+        
+        time_embed = self.time_embedding(t)  # (bsz, token_dim)
+        time_token = time_embed.unsqueeze(1)  # (bsz, 1, token_dim)
+        
+        # Ensure all tokens are on the same device
+        device = x.device
+        user_token = user_token.to(device)
+        score_token = score_token.to(device)
+        time_token = time_token.to(device)
+        
+        # Combine conditioning tokens
+        condition_tokens = torch.cat([user_token, score_token, time_token], dim=1)  # (bsz, 3, token_dim)
+        
+        # Cross-attention: User preferences influence image generation
+        # Query: image tokens, Key/Value: user preferences
+        enhanced_img_tokens, _ = self.user_image_cross_attention(
+            query=img_tokens,  # What we want to generate
+            key=condition_tokens,  # User preferences
+            value=condition_tokens
+        )
+        enhanced_img_tokens = self.norm1(enhanced_img_tokens + img_tokens)  # Residual connection
+        
+        # Self-attention among enhanced image tokens
+        enhanced_img_tokens = self.image_transformer(enhanced_img_tokens)
+        enhanced_img_tokens = self.norm2(enhanced_img_tokens)
+        
+        # Final prediction
+        predicted_noise = self.output_fc(enhanced_img_tokens)
+        
+        return predicted_noise.reshape(bsz, -1)  # Back to (bsz, img_embed_dim)
+
+
+class CrossAttentionDiffusionPriorLarge(nn.Module):
+    """
+    Large-scale cross-attention diffusion prior (~68M parameters)
+    Scaled up to match original model capacity
+    """
+    def __init__(
+        self,
+        img_embed_dim=1024,
+        num_users=94,
+        num_tokens=1,  # Single token for larger dimensions
+        n_heads=16,    # Increased from 8
+        num_layers=8,  # Increased from 6
+        dim_feedforward=4096,  # Increased from 2048
+        hidden_dim=512,  # Reduced to match target size
+    ):
+        super().__init__()
+        self.num_tokens = num_tokens
+        self.token_dim = img_embed_dim // num_tokens  # Should be 1024
+        self.hidden_dim = hidden_dim
+        
+        # User and score embeddings (scaled up)
+        self.user_embedding = nn.Embedding(num_users + 1, self.hidden_dim)  # +1 for CFG
+        self.score_embedding = nn.Embedding(3, self.hidden_dim)  # 0, 1, 2 (CFG)
+        self.time_embedding = SinusoidalEmbedding(self.hidden_dim)
+        
+        # Input projection to hidden dimension
+        self.input_projection = nn.Linear(self.token_dim, self.hidden_dim)
+        
+        # Cross-attention layers for user-image interaction (scaled up)
+        self.user_image_cross_attention = nn.MultiheadAttention(
+            embed_dim=self.hidden_dim, num_heads=n_heads, batch_first=True, dropout=0.1
+        )
+        
+        # Self-attention for image tokens (scaled up)
+        self.image_self_attention = nn.TransformerEncoderLayer(
+            d_model=self.hidden_dim, nhead=n_heads, dim_feedforward=dim_feedforward,
+            batch_first=True, dropout=0.1
+        )
+        
+        # Multi-layer transformer for image processing (scaled up)
+        self.image_transformer = nn.TransformerEncoder(
+            self.image_self_attention, num_layers=num_layers
+        )
+        
+        # Additional processing layers
+        self.intermediate_fc = nn.Linear(self.hidden_dim, self.hidden_dim)
+        self.intermediate_norm = nn.LayerNorm(self.hidden_dim)
+        
+        # Final prediction head (project back to token dimension)
+        self.output_fc = nn.Linear(self.hidden_dim, self.token_dim)
+        
+        # Layer normalization
+        self.norm1 = nn.LayerNorm(self.hidden_dim)
+        self.norm2 = nn.LayerNorm(self.hidden_dim)
+        self.norm3 = nn.LayerNorm(self.hidden_dim)
+    
+    def forward(self, x, t, user_id, score):
+        """
+        Forward pass
+        Args:
+            x: (batch_size, img_embed_dim) - noisy image embeddings
+            t: (batch_size) - timesteps
+            user_id: (batch_size) - user IDs
+            score: (batch_size) - binary scores (0, 1, 2 for CFG)
+        Returns:
+            predicted_noise: (batch_size, img_embed_dim)
+        """
+        bsz = x.shape[0]
+        
+        # Tokenize image embeddings
+        img_tokens = x.view(bsz, self.num_tokens, self.token_dim)  # (bsz, 1, 1024)
+        
+        # Project to hidden dimension
+        img_tokens = self.input_projection(img_tokens)  # (bsz, 1, 1024)
+        
+        # Create user and score tokens
+        user_token = self.user_embedding(user_id).unsqueeze(1)  # (bsz, 1, 1024)
+        score_token = self.score_embedding(score).unsqueeze(1)  # (bsz, 1, 1024)
+        
+        # Handle timestep expansion if needed
+        if t.dim() == 0:
+            t = t.unsqueeze(0)  # Make it 1D if it's a scalar
+        if t.shape[0] == 1 and bsz > 1:
+            t = t.expand(bsz)  # Expand to batch size if needed
+        
+        time_embed = self.time_embedding(t)  # (bsz, 1024)
+        time_token = time_embed.unsqueeze(1)  # (bsz, 1, 1024)
+        
+        # Ensure all tokens are on the same device
+        device = x.device
+        user_token = user_token.to(device)
+        score_token = score_token.to(device)
+        time_token = time_token.to(device)
+        
+        # Combine conditioning tokens
+        condition_tokens = torch.cat([user_token, score_token, time_token], dim=1)  # (bsz, 3, 1024)
+        
+        # Cross-attention: User preferences influence image generation
+        # Query: image tokens, Key/Value: user preferences
+        enhanced_img_tokens, _ = self.user_image_cross_attention(
+            query=img_tokens,  # What we want to generate
+            key=condition_tokens,  # User preferences
+            value=condition_tokens
+        )
+        enhanced_img_tokens = self.norm1(enhanced_img_tokens + img_tokens)  # Residual connection
+        
+        # Self-attention among enhanced image tokens
+        enhanced_img_tokens = self.image_transformer(enhanced_img_tokens)
+        enhanced_img_tokens = self.norm2(enhanced_img_tokens)
+        
+        # Additional processing
+        enhanced_img_tokens = self.intermediate_fc(enhanced_img_tokens)
+        enhanced_img_tokens = self.norm3(enhanced_img_tokens)
+        
+        # Final prediction (project back to token dimension)
+        predicted_noise = self.output_fc(enhanced_img_tokens)
+        
+        return predicted_noise.reshape(bsz, -1)  # Back to (bsz, img_embed_dim)
+
+
 
 class TransformerEmbeddingDiffusionModel(nn.Module):
     def __init__(
@@ -210,3 +434,98 @@ class TransformerEmbeddingDiffusionModelv2(nn.Module):
         predicted_noise = predicted_noise_tokens.reshape(bsz, -1)
 
         return predicted_noise
+
+
+class CrossAttentionPerLayerDiffusionPrior(nn.Module):
+    """
+    Diffusion prior with cross-attention after each layer
+    This demonstrates the alternative architecture with cross attention throughout
+    """
+    def __init__(
+        self,
+        img_embed_dim=1024,
+        num_users=94,
+        num_tokens=8,
+        n_heads=8,
+        num_layers=6,
+        dim_feedforward=2048,
+    ):
+        super().__init__()
+        self.num_tokens = num_tokens
+        self.token_dim = img_embed_dim // num_tokens
+        self.num_layers = num_layers
+        
+        # User and score embeddings
+        self.user_embedding = nn.Embedding(num_users + 1, self.token_dim)  # +1 for CFG
+        self.score_embedding = nn.Embedding(3, self.token_dim)  # 0, 1, 2 (CFG)
+        self.time_embedding = SinusoidalEmbedding(self.token_dim)
+        
+        # Create layers with cross attention after each
+        self.layers = nn.ModuleList()
+        for i in range(num_layers):
+            layer = nn.ModuleDict({
+                'self_attention': nn.TransformerEncoderLayer(
+                    d_model=self.token_dim, nhead=n_heads, 
+                    dim_feedforward=dim_feedforward,
+                    batch_first=True, dropout=0.1
+                ),
+                'cross_attention': nn.MultiheadAttention(
+                    embed_dim=self.token_dim, num_heads=n_heads, 
+                    batch_first=True, dropout=0.1
+                ),
+                'norm1': nn.LayerNorm(self.token_dim),
+                'norm2': nn.LayerNorm(self.token_dim),
+                'norm3': nn.LayerNorm(self.token_dim),
+            })
+            self.layers.append(layer)
+        
+        # Final prediction head
+        self.output_fc = nn.Linear(self.token_dim, self.token_dim)
+    
+    def forward(self, x, t, user_id, score):
+        """
+        Forward pass with cross attention after each layer
+        """
+        bsz = x.shape[0]
+        
+        # Tokenize image embeddings
+        img_tokens = x.view(bsz, self.num_tokens, self.token_dim)
+        
+        # Create conditioning tokens
+        user_token = self.user_embedding(user_id).unsqueeze(1)
+        score_token = self.score_embedding(score).unsqueeze(1)
+        
+        if t.dim() == 0:
+            t = t.unsqueeze(0)
+        if t.shape[0] == 1 and bsz > 1:
+            t = t.expand(bsz)
+        
+        time_embed = self.time_embedding(t)
+        time_token = time_embed.unsqueeze(1)
+        
+        # Combine conditioning tokens
+        condition_tokens = torch.cat([user_token, score_token, time_token], dim=1)
+        
+        # Process through layers with cross attention after each
+        current_tokens = img_tokens
+        
+        for i, layer in enumerate(self.layers):
+            # Self attention
+            attended = layer['self_attention'](current_tokens)
+            current_tokens = layer['norm1'](current_tokens + attended)
+            
+            # Cross attention with conditioning
+            cross_attended, _ = layer['cross_attention'](
+                query=current_tokens,
+                key=condition_tokens,
+                value=condition_tokens
+            )
+            current_tokens = layer['norm2'](current_tokens + cross_attended)
+            
+            # Final normalization
+            current_tokens = layer['norm3'](current_tokens)
+        
+        # Final prediction
+        predicted_noise = self.output_fc(current_tokens)
+        
+        return predicted_noise.reshape(bsz, -1)
