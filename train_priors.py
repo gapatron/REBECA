@@ -12,7 +12,6 @@ def validate_diffusion_model(model, noise_scheduler, val_dataloader, device, obj
     with torch.no_grad():
         for batch in val_dataloader:
             user_ids = batch["user_id"].to(device).to(torch.long)
-            ratings = batch["rating"].to(device).to(torch.long)
             likes = batch["like"].to(device).to(torch.long)
             image_embs = batch["image_emb"].to(device)
             batch_size = user_ids.shape[0]
@@ -30,9 +29,9 @@ def validate_diffusion_model(model, noise_scheduler, val_dataloader, device, obj
             pred = model(noisy, timesteps, user_ids, likes)
             
             # Compute loss based on objective
-            if objective == "noise-pred":
+            if objective == "epsilon":
                 loss = torch.nn.functional.mse_loss(pred, noise)
-            elif objective == "z0-pred":
+            elif objective == "sample":
                 loss = torch.nn.functional.mse_loss(pred, image_embs)
             elif objective == "v_prediction":
                 alpha_bar = noise_scheduler.alphas_cumprod.to(timesteps.device)
@@ -40,7 +39,7 @@ def validate_diffusion_model(model, noise_scheduler, val_dataloader, device, obj
                 v = alpha_bar_t.sqrt().view(-1,1) * noise - (1 - alpha_bar_t).sqrt().view(-1,1) * image_embs
                 loss = torch.nn.functional.mse_loss(v, pred)
             else:
-                raise ValueError("Invalid objective. Choose 'noise-pred', 'z0-pred', or 'v_prediction'.")
+                raise ValueError("Invalid objective. Choose 'epsilon', 'sample', or 'v_prediction'.")
             
             total_val_loss += loss.item()
     
@@ -56,8 +55,7 @@ def train_diffusion_prior(
     val_dataloader,
     optimizer,
     scheduler,
-    cfg_drop_prob=0.1,
-    num_unique_users=94,
+    num_unique_users=210,
     objective="noise-pred",
     device="cuda",
     num_epochs=100,
@@ -82,8 +80,6 @@ def train_diffusion_prior(
         total_grad_norm = 0
         for step, batch in enumerate(train_dataloader):
             optimizer.zero_grad(set_to_none=True)
-            
-            optimizer.zero_grad(set_to_none=True)
             # Extract batch data
             user_ids = batch["user_id"].to(device).to(torch.long)
             likes = batch["like"].to(device).to(torch.long)
@@ -100,18 +96,22 @@ def train_diffusion_prior(
             noisy = noise_scheduler.add_noise(image_embs, noise, timesteps)
 
             ## CFG!
-            do_drop = (torch.rand(batch_size, device=device) < cfg_drop_prob)
-            user_id_uncond = torch.full_like(user_ids, num_unique_users)
-            score_uncond   = torch.full_like(likes, 2)
-            final_user_ids  = torch.where(do_drop, user_id_uncond, user_ids)
-            final_likes    = torch.where(do_drop, score_uncond, likes)
+            p_user_drop  = 0.15
+            p_score_drop = 0.15
+
+            drop_user  = (torch.rand(batch_size, device=device) < p_user_drop)
+            drop_score = (torch.rand(batch_size, device=device) < p_score_drop)
+    
+
+            final_user_ids  = torch.where(drop_user,  torch.full_like(user_ids,  num_unique_users), user_ids)
+            final_scores    = torch.where(drop_score, torch.full_like(likes, 2), likes)
             
             # Forward pass
-            pred = model(noisy, timesteps, final_user_ids, final_likes)
+            pred = model(noisy, timesteps, final_user_ids, final_scores)
             
-            if objective == "noise-pred":
+            if objective == "epsilon":
                 loss = torch.nn.functional.mse_loss(pred, noise)
-            elif objective == "z0-pred":
+            elif objective == "sample":
                 loss = torch.nn.functional.mse_loss(pred, image_embs)
             elif objective == "v_prediction":
                 alpha_bar = noise_scheduler.alphas_cumprod.to(timesteps.device)
@@ -119,7 +119,7 @@ def train_diffusion_prior(
                 v = alpha_bar_t.sqrt().view(-1,1) * noise - (1 - alpha_bar_t).sqrt().view(-1,1) * image_embs
                 loss = torch.nn.functional.mse_loss(v, pred)
             else:
-                raise ValueError("Invalid objective. Choose 'noise-pred', 'z0-pred', or 'v_prediction'.")
+                raise ValueError("Invalid objective. Choose 'epsilon', 'sample', or 'v_prediction'.")
             
             # Backpropagation
             loss.backward()
@@ -154,10 +154,7 @@ def train_diffusion_prior(
         if verbose:
             print(f"Epoch {epoch+1}/{num_epochs}, Time Elapsed: {elapsed_time:.2f}s, Train Loss: {avg_train_loss:.4f}, "
               f"Val Loss: {avg_val_loss:.4f}, Grad Norm: {avg_grad_norm:.4f}")
-
-        
-
-        
+            
         # Early stopping check
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
