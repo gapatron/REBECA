@@ -4,7 +4,7 @@ from prior_models import TransformerEmbeddingDiffusionModelv2
 from diffusers import DDPMScheduler
 from sampling import sample_user_images
 #from utils import save_generated_data_to_user_dir
-from diffusion_adapters import StableDiffusionPipelineAdapterEmbeddings
+from diffusers import StableDiffusionPipeline
 #import random
 import os
 import glob
@@ -52,7 +52,7 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     model_id = "runwayml/stable-diffusion-v1-5"
-    pipe = StableDiffusionPipelineAdapterEmbeddings.from_pretrained(model_id).to(device)
+    pipe = StableDiffusionPipeline.from_pretrained(model_id).to(device)
     pipe.load_ip_adapter("h94/IP-Adapter", subfolder="models", weight_name="ip-adapter_sd15.bin")
     pipe.safety_checker = None  # disable safety checker
     pipe.vae.eval()            
