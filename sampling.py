@@ -62,14 +62,14 @@ def sample_user_images(
     
     # Ensure model is in eval mode
     diffusion_prior_model.eval()
-    
+    results = {}
     for user_idx in tqdm(users):
         user_dict = dict.fromkeys(["prior_embeddings", "images", "posterior_embeddings"])
         like = 1
         score_tensor = torch.tensor(like).expand(images_per_user).long().to(device)
         user_tensor = torch.tensor(user_idx).expand(images_per_user).to(device)
-        user_ids_uncond_tensor = torch.full_like(user_tensor, fill_value = 210).to(device)
-        score_uncond_tensor = torch.full_like(score_tensor, fill_value = 2).to(device)
+        user_uncond   = torch.full_like(user_tensor, fill_value=210)
+        score_uncond  = torch.full_like(score_tensor, fill_value=2)
 
         # Generate embeddings with memory cleanup
         with torch.no_grad():
@@ -77,8 +77,8 @@ def sample_user_images(
                     model=diffusion_prior_model,
                     user_ids_cond=user_tensor,
                     scores_cond=score_tensor,
-                    user_ids_uncond=user_ids_uncond_tensor,
-                    scores_uncond=score_uncond_tensor,
+                    user_ids_uncond=user_uncond,
+                    scores_uncond=score_uncond,
                     img_embedding_size=img_embedding_size,
                     scheduler=noise_scheduler,
                     guidance_scale=guidance_scale,
@@ -90,35 +90,41 @@ def sample_user_images(
         user_dict["prior_embeddings"] = sampled_img_embs
         # Generate images with memory optimization
         gen_images = []
-        for i, sampled_img_emb in enumerate(sampled_img_embs):
-            
-            pos = sampled_img_emb.to(device=diffusion_pipe.device, dtype=diffusion_pipe.unet.dtype).unsqueeze(0).unsqueeze(0)          # (1, D)
-            neg = torch.zeros_like(pos)                                       # (1, D)
-            ip  = torch.cat([neg, pos], dim=0)
+        with torch.inference_mode():
+            for i in range(images_per_user):
+                pos = sampled_img_embs[i].unsqueeze(0).unsqueeze(0)  # (1,1,D)
+                neg = torch.zeros_like(pos)
+                ip  = torch.cat([neg, pos], dim=0)                   # (2,1,D) for CFG
 
-            with torch.no_grad():
-                gen_image = diffusion_pipe(
-                    prompt=prompt,
+                imgs = diffusion_pipe(
+                    prompt="",
+                    negative_prompt="",
+                    guidance_scale=7.5,
                     ip_adapter_image_embeds=[ip],
-                    negative_prompt=negative_prompt,
-                    num_inference_steps=50,  # Reduced steps to save memory
-                    ).images
-                gen_images.extend(gen_image)
-                # Clear cache after each user
+                    num_inference_steps=50,
+                ).images
+
+                gen_images.append(imgs[0])
+
+                # free ASAP
+                del pos, neg, ip, imgs
                 torch.cuda.empty_cache()
 
         posterior_embeddings = []
-        for image in gen_images:
-            image_emb = diffusion_pipe.encode_image(image, device="cuda", num_images_per_prompt=1)[0].squeeze()
-            posterior_embeddings.append(image_emb.cpu())
-            
-        user_dict["posterior_embeddings"] = torch.stack(posterior_embeddings)
-        user_dict["images"] = gen_images
+        with torch.inference_mode():
+            for pil_img in gen_images:
+                emb, _ = diffusion_pipe.encode_image(pil_img, device=diffusion_pipe.device, num_images_per_prompt=1)
+                posterior_embeddings.append(emb[0].float().cpu())  # move off GPU immediately
+                torch.cuda.empty_cache()
 
-        data[user_idx] = user_dict
-        
-        # Clear tensors for this user
-        del score_tensor, user_tensor, user_ids_uncond_tensor, score_uncond_tensor, sampled_img_embs, gen_images
+        results[user_idx] = {
+            "prior_embeddings": sampled_img_embs.float().cpu(),   # store on CPU
+            "images": gen_images,                                 # PILs live on CPU
+            "posterior_embeddings": torch.stack(posterior_embeddings) if posterior_embeddings else None,
+        }
+
+        # release per-user tensors
+        del sampled_img_embs, gen_images, posterior_embeddings, user_tensor, score_tensor, user_uncond, score_uncond
         torch.cuda.empty_cache()
-    
-    return data
+
+    return results
