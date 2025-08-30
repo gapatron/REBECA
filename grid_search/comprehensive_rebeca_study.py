@@ -339,7 +339,8 @@ class ComprehensiveREBECAStudy:
             noise_scheduler = DDPMScheduler(
                 num_train_timesteps=config['timesteps'],
                 beta_schedule=config['noise_schedule'],
-                clip_sample=config['clip_sample']
+                clip_sample=config['clip_sample'],
+                prediction_type=config["objective"]
             )
             
             # Setup dataloaders
