@@ -253,7 +253,7 @@ class ComprehensiveREBECAStudy:
             f"model{config['model_type']}",
             f"num_layers{config.get('num_layers', 'default')}",
             f"num_heads{config.get('num_heads', 'default')}",
-            f"hidden_dim{config.get('hiden_dim', 'default')}",
+            f"hidden_dim{config.get('hidden_dim', 'default')}",
             f"tokens{config.get('num_tokens', 'default')}",
             f"lr{config['learning_rate']}",
             f"opt{config['optimizers']}",
