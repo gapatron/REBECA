@@ -21,7 +21,6 @@ class EmbeddingsDataset(Dataset):
             "like":  (self.ratings[index]>=4),
             "image_path": self.image_paths[index],
             "image_emb": self.image_embeddings[index],
-            "user_weight": self.user_weights[self.users[index]].item()
         }
         
 
