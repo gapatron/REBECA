@@ -1,5 +1,5 @@
 import torch
-from diffusion_adapters import StableDiffusionPipelineAdapterEmbeddings
+from diffusers import StableDiffusionPipeline
 import argparse
 
 
@@ -19,7 +19,7 @@ def main():
     dst_dir = args.dst_dir
 
     model_id = "runwayml/stable-diffusion-v1-5"                                                                                                                                                                                                                
-    pipe = StableDiffusionPipelineAdapterEmbeddings.from_pretrained(model_id).to("cuda")
+    pipe = StableDiffusionPipeline.from_pretrained(model_id).to("cuda")
     pipe.safety_checker = None
 
     prompt_candidates = [
