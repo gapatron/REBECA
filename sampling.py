@@ -51,6 +51,7 @@ def sample_user_images(
         prompt, 
         negative_prompt,
         img_embedding_size,
+        pipe_cfg=7.5,
         device="cuda"
         ):
     # prompts have to be lists
@@ -99,7 +100,7 @@ def sample_user_images(
                 imgs = diffusion_pipe(
                     prompt="",
                     negative_prompt="",
-                    guidance_scale=7.5,
+                    guidance_scale=pipe_cfg,
                     ip_adapter_image_embeds=[ip],
                     num_inference_steps=50,
                 ).images
