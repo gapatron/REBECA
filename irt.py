@@ -535,6 +535,9 @@ class NCF():
             self.model.load_state_dict(params['model_state_dict'])
             self.model.eval()
 
+    def to(self, device):
+        self.model.to(device)
+
 
 
 if __name__ == "__main__":
