@@ -36,7 +36,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from diffusers import DDPMScheduler
 from Datasets import RecommenderUserSampler, EmbeddingsDataset
 from prior_models import (
-    TransformerEmbeddingDiffusionModelv2, 
     RebecaDiffusionPrior
 )
 from train_priors import train_diffusion_prior
@@ -130,7 +129,7 @@ class ComprehensiveREBECAStudy:
             'num_layers': [6, 8],  # For transformer and some cross-attention models
             'num_heads': [4, 8],  # For transformer and some cross-attention models
             'num_tokens': [16, 32],  # For transformer models
-            'hidden_dim': [32, 64, 128],
+            'hidden_dim': [128, 256],
             # Training parameters
             'learning_rate': [1e-4],
             'optimizers': ['adamw'],
@@ -212,27 +211,12 @@ class ComprehensiveREBECAStudy:
         
         return filtered_ratings_df, valid_users, worker_mapping
     
-    def create_model(self, config, num_users, device):
+    def create_model(self, config,device):
         """
         Create model based on configuration.
         """
-        model_type = config['model_type']
-        img_embed_dim = config['img_embed_dim']
-        
-        if model_type == 'transformer':
-            return TransformerEmbeddingDiffusionModelv2(
-                img_embed_dim=img_embed_dim,
-                num_users=num_users,
-                num_tokens=config['num_image_tokens'],
-                num_user_tokens=config['num_user_tokens'],
-                n_heads=config['heads'],
-                num_layers=config['layers'],
-                whether_use_user_embeddings=config['use_ue'],
-                dim_feedforward=config['dim_feedforward'],
-            ).to(device)
-        
-        elif model_type == 'rdp':
-            return RebecaDiffusionPrior(
+
+        return RebecaDiffusionPrior(
                 img_embed_dim=1024,
                 num_users=210,
                 num_tokens=config["num_tokens"],
@@ -242,9 +226,7 @@ class ComprehensiveREBECAStudy:
                 score_classes=2,
             ).to(device)
         
-        else:
-            raise ValueError(f"Unknown model type: {model_type}")
-    
+        
     def create_experiment_name(self, config):
         """
         Create a unique experiment name from configuration.
