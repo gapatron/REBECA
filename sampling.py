@@ -52,7 +52,8 @@ def sample_user_images(
         negative_prompt,
         img_embedding_size,
         pipe_cfg=7.5,
-        device="cuda"
+        device="cuda",
+        savepath=None
         ):
     # prompts have to be lists
     #prompt=["Realistic image, finely detailed, with balanced composition and harmonious elements. Natural lighting, dynamic yet subtle tones, versatile style adaptable to diverse themes and aesthetics, prioritizing clarity and authenticity."]*samples_per_user
@@ -127,5 +128,10 @@ def sample_user_images(
         # release per-user tensors
         del sampled_img_embs, gen_images, posterior_embeddings, user_tensor, score_tensor, user_uncond, score_uncond
         torch.cuda.empty_cache()
+        # save and release per user in case of heavy workloads
+        if not savepath is None:
+            torch.save(results[user_idx], f"{savepath}_userid_{user_idx}.data")
+            results = {}
+
 
     return results
