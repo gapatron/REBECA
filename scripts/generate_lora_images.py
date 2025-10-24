@@ -6,7 +6,7 @@ import json
 import torch
 
 def main():
-    output_dir = "./outputs/sd15_lora_shared_r512"
+    output_dir = "./flickr/evaluation/lora/weights/sd15_lora_shared_r512"
     device = "cuda"
     global_step = 100_000
     pipeline = StableDiffusionPipeline.from_pretrained(
