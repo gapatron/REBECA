@@ -6,13 +6,14 @@ import json
 import torch
 
 def main():
-    output_dir = "./flickr/evaluation/lora/weights/sd15_lora_shared_r512"
+    output_dir = "./data/flickr/evaluation/lora/weights/sd15_lora_r512_unet"
     device = "cuda"
-    global_step = 100_000
+    global_step = 12000
     pipeline = StableDiffusionPipeline.from_pretrained(
         "stable-diffusion-v1-5/stable-diffusion-v1-5",
         revision=None,
     ).to(device)
+    pipeline.safety_checker = None
 
     # Load our tiny config
     with open(os.path.join(output_dir, f"{global_step}_peft_config.json"), "r") as f:
@@ -32,7 +33,7 @@ def main():
         set_peft_model_state_dict(pipeline.text_encoder, te_sd)
 
     pipe_cfg = 5.0
-    images_per_user = 100
+    images_per_user = 25
     seed = 42
     torch.manual_seed(seed)
 
@@ -48,8 +49,8 @@ def main():
             for i in range(images_per_user):
 
                 imgs = pipeline(
-                        prompt=f"<u{user_id}> photo",
-                        negative_prompt="",
+                        prompt=f"<u{user_id}> Realistic image, finely detailed, with balanced composition and harmonious elements.",
+                        negative_prompt="deformed, ugly, wrong proportion, frame, watermark, low res, bad anatomy, worst quality, low quality",
                         guidance_scale=pipe_cfg,
                         num_inference_steps=50,
                     ).images
