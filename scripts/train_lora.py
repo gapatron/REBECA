@@ -375,6 +375,9 @@ def parse_args():
         "--enable_xformers_memory_efficient_attention", action="store_true", help="Whether or not to use xformers."
     )
 
+    parser.add_argument("--user_id", type=str, default=None,
+    help="Train only on captions that start with this user tag, e.g. 'u0' or 'u123'.")
+
     args = parser.parse_args()
     env_local_rank = int(os.environ.get("LOCAL_RANK", -1))
     if env_local_rank != -1 and env_local_rank != args.local_rank:
@@ -629,6 +632,13 @@ def main():
     # Preprocessing the datasets.
     # We need to tokenize inputs and targets.
     column_names = dataset["train"].column_names
+    if args.user_id is not None:
+        user_prefix = f"<u{args.user_id}>"
+    def _keep(ex):
+        cap = ex.get(args.caption_column, "")
+        return isinstance(cap, str) and cap.startswith(user_prefix)
+    with accelerator.main_process_first():
+        dataset["train"] = dataset["train"].filter(_keep)
 
     # 6. Get the column names for input/target.
     dataset_columns = DATASET_NAME_MAPPING.get(args.dataset_name, None)
