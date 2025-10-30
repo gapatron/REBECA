@@ -48,6 +48,7 @@ from diffusers.utils import check_min_version, is_wandb_available
 from diffusers.utils.import_utils import is_xformers_available
 from diffusers import StableDiffusionPipeline
 
+from peft import LoraConfig, get_peft_model, get_peft_model_state_dict, set_peft_model_state_dict
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.14.0.dev0")
@@ -634,11 +635,11 @@ def main():
     column_names = dataset["train"].column_names
     if args.user_id is not None:
         user_prefix = f"<u{args.user_id}>"
-    def _keep(ex):
-        cap = ex.get(args.caption_column, "")
-        return isinstance(cap, str) and cap.startswith(user_prefix)
-    with accelerator.main_process_first():
-        dataset["train"] = dataset["train"].filter(_keep)
+        def _keep(ex):
+            cap = ex.get(args.caption_column, "")
+            return isinstance(cap, str) and cap.startswith(user_prefix)
+        with accelerator.main_process_first():
+            dataset["train"] = dataset["train"].filter(_keep)
 
     # 6. Get the column names for input/target.
     dataset_columns = DATASET_NAME_MAPPING.get(args.dataset_name, None)
@@ -931,10 +932,16 @@ def main():
 
                 # 4) Generate
                 generator = (torch.Generator(device=accelerator.device).manual_seed(args.seed)
-                            if args.seed is not None else None)
+                if args.seed is not None else None)
                 images = []
-                for _ in range(args.num_validation_images):
+                for i in range(args.num_validation_images):
                     images.append(pipe(args.validation_prompt, num_inference_steps=30, generator=generator).images[0])
+
+                # === NEW: save to disk ===
+                val_dir = os.path.join(args.output_dir, "validation", f"epoch-{epoch:04d}")
+                os.makedirs(val_dir, exist_ok=True)
+                for i, pil in enumerate(images):
+                    pil.save(os.path.join(val_dir, f"val_{i:02d}.png"))
 
                 # (optional) log to TB/W&B as you already do
                 del pipe
@@ -1016,6 +1023,11 @@ def main():
     images = []
     for _ in range(args.num_validation_images):
         images.append(pipeline(args.validation_prompt, num_inference_steps=30, generator=generator).images[0])
+    
+    final_dir = os.path.join(args.output_dir, "final")
+    os.makedirs(final_dir, exist_ok=True)
+    for i, pil in enumerate(images):
+        pil.save(os.path.join(final_dir, f"final_{i:02d}.png"))
 
     if accelerator.is_main_process:
         for tracker in accelerator.trackers:
