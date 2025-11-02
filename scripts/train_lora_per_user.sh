@@ -39,7 +39,7 @@ for USER in $(seq 0 209); do
     --validation_prompt "<u${USER}> photo"
     --num_validation_images 4
     --validation_epochs 25
-    --checkpointing_steps 1000
+    --checkpointing_steps 2000
     --checkpoints_total_limit 6
     --output_dir "outputs/lora_users/u${USER}"
     --seed "${USER}"
