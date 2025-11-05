@@ -33,7 +33,7 @@ def main():
                             prediction_type="sample"
                         )
         
-    rebeca_cfg  = 6.0
+    rebeca_cfg  = 5.0
     pipe_cfg = 5.0
     images_per_user = 25
 
