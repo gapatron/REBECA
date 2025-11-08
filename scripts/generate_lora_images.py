@@ -70,7 +70,7 @@ def main(args):
         seed = 42
         torch.manual_seed(seed)
 
-        savedir = "./data/flickr/evaluation/lora/samples_T1/shared"
+        savedir = "./data/flickr/evaluation/lora/samples_liked/shared"
         savepath = f"{savedir}/pipecfg_{pipe_cfg}_seed_{seed}"
         users = list(range(210))
 
@@ -81,8 +81,8 @@ def main(args):
             with torch.inference_mode():
                 for _ in range(images_per_user):
                     imgs = pipeline(
-                        prompt=f"<u{user_id}> Realistic image, finely detailed.",
-                        negative_prompt="deformed, ugly, wrong proportion, frame, watermark, low res",
+                        prompt=f"<u{user_id}> liked image.",
+                        negative_prompt="",
                         guidance_scale=pipe_cfg,
                         num_inference_steps=50,
                     ).images
@@ -98,7 +98,7 @@ def main(args):
         seed = 42
         torch.manual_seed(seed)
 
-        savedir = "./data/flickr/evaluation/lora/samples_T1/per_user"
+        savedir = "./data/flickr/evaluation/lora/samples_liked/per_user"
         os.makedirs(savedir, exist_ok=True)
         users = list(range(210))
         for user_id in users:
@@ -119,8 +119,8 @@ def main(args):
             with torch.inference_mode():
                 for _ in range(images_per_user):
                     imgs = pipe(
-                        prompt=f"<u{user_id}> Realistic image, finely detailed.",
-                        negative_prompt="deformed, ugly, wrong proportion, frame, watermark, low res",
+                        prompt=f"<u{user_id}> liked image.",
+                        negative_prompt="",
                         guidance_scale=pipe_cfg,
                         num_inference_steps=50,
                     ).images
