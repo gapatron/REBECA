@@ -93,7 +93,7 @@ def main(args):
                             prediction_type="sample"
                         )
         
-        rebeca_cfg  = 9.0
+        rebeca_cfg  = 5.0
         pipe_cfg = 5.0
         images_per_user = 10
         savedir = "./data/flickr/evaluation/ablations/cross-prompts/"
@@ -176,12 +176,13 @@ def main(args):
                     gen_images = pipe(
                         prompt=pos_prompt,
                         negative_prompt=neg_prompt,
-                        num_inference_steps=100,
+                        num_inference_steps=50,
                         ).images
                     torch.cuda.empty_cache()
 
             save_images.extend(gen_images)
-        save_generated_data(save_images, dst_dir)
+        torch.save(save_images, f"./data/flickr/evaluation/ablations/baseline-prompts/images_prompt_level_{prompt_level}.imgs")
+        #save_generated_data(save_images, dst_dir)
     else:
         raise NotImplementedError("{args.experiment_type} is not implemented yet.")
 
@@ -190,8 +191,8 @@ def main(args):
 if __name__=="__main__":
     parser = argparse.ArgumentParser(description='Generate baseline images')
     parser.add_argument('--experiment_type', type=str, required=True, default="cross-cfg", help='Experiment type. Implemented cross-cfg, varying embedding generator CFG with Image generator CFG.')
-    parser.add_argument('-n_images', type=int, default=100, help='Number of images')
-    parser.add_argument('-prompt_level', type=int, help='Prompt level')
-    parser.add_argument('-dst_dir', type=str, help='Destination directory')
+    parser.add_argument('--n_images', type=int, default=100, help='Number of images')
+    parser.add_argument('--prompt_level', type=int, help='Prompt level')
+    parser.add_argument('--dst_dir', type=str, help='Destination directory')
     args = parser.parse_args()
     main(args)
