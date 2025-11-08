@@ -15,7 +15,7 @@ SAVE_DIR = f"{OUTPUT_DIR}/samples"
 GUIDANCE = 5.0
 IMAGES_PER_USER = 25
 NUM_STEPS = 50
-BASE_SEED = 42
+BASE_SEED = 0
 USERS = list(range(210))
 DEVICE = "cuda"
 
