@@ -93,7 +93,7 @@ def main(args):
                             prediction_type="sample"
                         )
         
-        rebeca_cfg  = 5.0
+        rebeca_cfg  = 7.0
         pipe_cfg = 5.0
         images_per_user = 10
         savedir = "./data/flickr/evaluation/ablations/cross-prompts/"

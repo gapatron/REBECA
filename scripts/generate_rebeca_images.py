@@ -1,5 +1,8 @@
 import torch
 from diffusers import StableDiffusionPipeline, DDPMScheduler
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sampling import sample_user_images
 from prior_models import RebecaDiffusionPrior
 import os
@@ -33,7 +36,7 @@ def main():
                             prediction_type="sample"
                         )
         
-    rebeca_cfg  = 5.0
+    rebeca_cfg  = 7.0
     pipe_cfg = 5.0
     images_per_user = 25
 
