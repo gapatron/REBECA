@@ -113,3 +113,76 @@ class SimulationREBECAModel(nn.Module):
         if x.shape == output.shape:
             output = x + output
         return output
+
+
+class LinearModel(nn.Module):
+    def __init__(self, input_dim, output_dim, bias=True):
+        super().__init__()
+        self.fc = nn.Linear(input_dim, output_dim)
+        if bias:
+            self.bias  = nn.Parameter(torch.randn(output_dim))
+        else:
+            self.bias = None
+    def forward(self, x):
+        return self.fc(x) + (self.bias if self.bias is not None else 0)
+
+############ VAE Implementation
+
+
+class VAE(nn.Module):
+    def __init__(self, image_size=64, in_channels=3, latent_dim=10):
+        super().__init__()
+        assert image_size == 64, "This architecture assumes 64x64 images"
+        
+        self.latent_dim = latent_dim
+        
+        # Encoder
+        self.encoder = nn.Sequential(
+            nn.Conv2d(in_channels, 32, 4, 2, 1), nn.ReLU(),   # 32x32
+            nn.Conv2d(32, 64, 4, 2, 1), nn.ReLU(),            # 16x16
+            nn.Conv2d(64, 128, 4, 2, 1), nn.ReLU(),           # 8x8
+            nn.Conv2d(128, 256, 4, 2, 1), nn.ReLU()           # 4x4
+        )
+        self.global_pool = nn.AdaptiveAvgPool2d(1)               # (B, 256, 1, 1)
+        
+        # VAE specific: separate heads for mean and log variance
+        self.fc_mu = nn.Linear(256, latent_dim)
+        self.fc_logvar = nn.Linear(256, latent_dim)
+
+        # Decoder
+        self.fc_dec = nn.Linear(latent_dim, 256 * 4 * 4)
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(256, 128, 4, 2, 1), nn.ReLU(),    # 8x8
+            nn.ConvTranspose2d(128, 64, 4, 2, 1), nn.ReLU(),     # 16x16
+            nn.ConvTranspose2d(64, 32, 4, 2, 1), nn.ReLU(),      # 32x32
+            nn.ConvTranspose2d(32, in_channels, 4, 2, 1), nn.Sigmoid()  # 64x64
+        )
+
+    def encode(self, x):
+        x = self.encoder(x)
+        x = self.global_pool(x)           # (B, 256, 1, 1)
+        x = x.squeeze(-1).squeeze(-1)     # (B, 256)
+        mu = self.fc_mu(x)                # (B, latent_dim)
+        logvar = self.fc_logvar(x)        # (B, latent_dim)
+        return mu, logvar
+
+    def reparameterize(self, mu, logvar):
+        """Reparameterization trick to sample from N(mu, var) from N(0,1)"""
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def decode(self, z):
+        x = self.fc_dec(z)                # (B, 256*4*4)
+        x = x.view(-1, 256, 4, 4)
+        return self.decoder(x)
+
+    def forward(self, x):
+        mu, logvar = self.encode(x)
+        z = self.reparameterize(mu, logvar)
+        return self.decode(z), mu, logvar
+
+    def sample(self, num_samples, device):
+        """Generate samples from the VAE"""
+        z = torch.randn(num_samples, self.latent_dim).to(device)
+        return self.decode(z)

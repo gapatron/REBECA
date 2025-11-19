@@ -115,3 +115,165 @@ def train_rebeca_prior(
         if scheduler is not None:
             scheduler.step(avg_loss)
     return model
+
+
+
+def vae_loss_function(recon_x, x, mu, logvar, beta=1.0):
+    """
+    VAE loss function combining reconstruction loss and KL divergence.
+    
+    Args:
+        recon_x: reconstructed images
+        x: original images
+        mu: mean of latent distribution
+        logvar: log variance of latent distribution
+        beta: weight for KL divergence (for beta-VAE)
+    
+    Returns:
+        total_loss, recon_loss, kl_loss
+    """
+    # Reconstruction loss (Binary Cross Entropy for images in [0,1])
+    recon_loss = F.binary_cross_entropy(recon_x, x, reduction='sum')
+    
+    # KL divergence loss
+    kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    
+    # Total loss
+    total_loss = recon_loss + beta * kl_loss
+    
+    return total_loss, recon_loss, kl_loss
+
+def train_vae(model, train_loader, val_loader, optimizer, device, num_epochs=20, beta=1.0):
+    """
+    Train a VAE model.
+    
+    Args:
+        model: VAE model
+        train_loader: training data loader
+        val_loader: validation data loader
+        optimizer: optimizer
+        device: device to train on
+        num_epochs: number of training epochs
+        beta: weight for KL divergence (for beta-VAE)
+    """
+    model.to(device)
+
+    train_losses = []
+    val_losses = []
+    train_recon_losses = []
+    train_kl_losses = []
+    val_recon_losses = []
+    val_kl_losses = []
+
+    epoch_bar = tqdm(range(num_epochs), desc="Training VAE", leave=True)
+
+    for epoch in epoch_bar:
+        model.train()
+        total_train_loss = 0.0
+        total_train_recon_loss = 0.0
+        total_train_kl_loss = 0.0
+
+        for batch in train_loader:
+            x = batch[0].to(device)
+
+            optimizer.zero_grad()
+            recon_x, mu, logvar = model(x)
+            loss, recon_loss, kl_loss = vae_loss_function(recon_x, x, mu, logvar, beta)
+            loss.backward()
+            optimizer.step()
+
+            total_train_loss += loss.item()
+            total_train_recon_loss += recon_loss.item()
+            total_train_kl_loss += kl_loss.item()
+
+        avg_train_loss = total_train_loss / len(train_loader.dataset)
+        avg_train_recon_loss = total_train_recon_loss / len(train_loader.dataset)
+        avg_train_kl_loss = total_train_kl_loss / len(train_loader.dataset)
+        
+        train_losses.append(avg_train_loss)
+        train_recon_losses.append(avg_train_recon_loss)
+        train_kl_losses.append(avg_train_kl_loss)
+
+        # Validation phase
+        model.eval()
+        total_val_loss = 0.0
+        total_val_recon_loss = 0.0
+        total_val_kl_loss = 0.0
+        
+        with torch.no_grad():
+            for batch in val_loader:
+                x = batch[0].to(device)
+                recon_x, mu, logvar = model(x)
+                loss, recon_loss, kl_loss = vae_loss_function(recon_x, x, mu, logvar, beta)
+                
+                total_val_loss += loss.item()
+                total_val_recon_loss += recon_loss.item()
+                total_val_kl_loss += kl_loss.item()
+
+        avg_val_loss = total_val_loss / len(val_loader.dataset)
+        avg_val_recon_loss = total_val_recon_loss / len(val_loader.dataset)
+        avg_val_kl_loss = total_val_kl_loss / len(val_loader.dataset)
+        
+        val_losses.append(avg_val_loss)
+        val_recon_losses.append(avg_val_recon_loss)
+        val_kl_losses.append(avg_val_kl_loss)
+
+        # Logging
+        epoch_bar.set_description(f"Epoch {epoch+1}/{num_epochs}")
+        epoch_bar.set_postfix(
+            train_loss=f"{avg_train_loss:.4f}", 
+            val_loss=f"{avg_val_loss:.4f}",
+            train_recon=f"{avg_train_recon_loss:.4f}",
+            train_kl=f"{avg_train_kl_loss:.4f}"
+        )
+
+    # Plot loss curves
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    
+    # Total loss
+    axes[0, 0].plot(train_losses, label='Train Loss')
+    axes[0, 0].plot(val_losses, label='Validation Loss')
+    axes[0, 0].set_xlabel("Epoch")
+    axes[0, 0].set_ylabel("Total Loss")
+    axes[0, 0].set_title("VAE Training - Total Loss")
+    axes[0, 0].legend()
+    axes[0, 0].grid(True)
+    
+    # Reconstruction loss
+    axes[0, 1].plot(train_recon_losses, label='Train Recon Loss')
+    axes[0, 1].plot(val_recon_losses, label='Validation Recon Loss')
+    axes[0, 1].set_xlabel("Epoch")
+    axes[0, 1].set_ylabel("Reconstruction Loss")
+    axes[0, 1].set_title("VAE Training - Reconstruction Loss")
+    axes[0, 1].legend()
+    axes[0, 1].grid(True)
+    
+    # KL divergence loss
+    axes[1, 0].plot(train_kl_losses, label='Train KL Loss')
+    axes[1, 0].plot(val_kl_losses, label='Validation KL Loss')
+    axes[1, 0].set_xlabel("Epoch")
+    axes[1, 0].set_ylabel("KL Divergence Loss")
+    axes[1, 0].set_title("VAE Training - KL Divergence Loss")
+    axes[1, 0].legend()
+    axes[1, 0].grid(True)
+    
+    # Loss ratio
+    loss_ratio = [kl/recon if recon > 0 else 0 for kl, recon in zip(train_kl_losses, train_recon_losses)]
+    axes[1, 1].plot(loss_ratio, label='KL/Recon Ratio')
+    axes[1, 1].set_xlabel("Epoch")
+    axes[1, 1].set_ylabel("KL/Reconstruction Ratio")
+    axes[1, 1].set_title("VAE Training - Loss Ratio")
+    axes[1, 1].legend()
+    axes[1, 1].grid(True)
+    
+    plt.tight_layout()
+    plt.show()
+
+    return {
+        'train_losses': train_losses,
+        'val_losses': val_losses,
+        'train_recon_losses': train_recon_losses,
+        'train_kl_losses': train_kl_losses,
+        'val_recon_losses': val_recon_losses,
+        'val_kl_losses': val_kl_losses
+    }
